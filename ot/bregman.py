@@ -15,6 +15,7 @@ Bregman projections solvers for entropic regularized OT
 # License: MIT License
 
 import numpy as np
+import cupy as cp
 import warnings
 from .utils import unif, dist
 from scipy.optimize import fmin_l_bfgs_b
@@ -95,7 +96,6 @@ def sinkhorn(a, b, M, reg, method='sinkhorn', numItermax=1000,
     .. [9] Schmitzer, B. (2016). Stabilized Sparse Scaling Algorithms for Entropy Regularized Transport Problems. arXiv preprint arXiv:1610.06519.
 
     .. [10] Chizat, L., Peyré, G., Schmitzer, B., & Vialard, F. X. (2016). Scaling algorithms for unbalanced transport problems. arXiv preprint arXiv:1607.05816.
-
 
 
     See Also
@@ -312,14 +312,14 @@ def sinkhorn_knopp(a, b, M, reg, numItermax=1000,
 
     """
 
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-    M = np.asarray(M, dtype=np.float64)
+    a = cp.asarray(a, dtype=cp.float64)
+    b = cp.asarray(b, dtype=cp.float64)
+    M = cp.asarray(M, dtype=cp.float64)
 
     if len(a) == 0:
-        a = np.ones((M.shape[0],), dtype=np.float64) / M.shape[0]
+        a = cp.ones((M.shape[0],), dtype=cp.float64) / M.shape[0]
     if len(b) == 0:
-        b = np.ones((M.shape[1],), dtype=np.float64) / M.shape[1]
+        b = cp.ones((M.shape[1],), dtype=cp.float64) / M.shape[1]
 
     # init data
     dim_a = len(a)
@@ -336,21 +336,21 @@ def sinkhorn_knopp(a, b, M, reg, numItermax=1000,
     # we assume that no distances are null except those of the diagonal of
     # distances
     if n_hists:
-        u = np.ones((dim_a, n_hists)) / dim_a
-        v = np.ones((dim_b, n_hists)) / dim_b
+        u = cp.ones((dim_a, n_hists)) / dim_a
+        v = cp.ones((dim_b, n_hists)) / dim_b
     else:
-        u = np.ones(dim_a) / dim_a
-        v = np.ones(dim_b) / dim_b
+        u = cp.ones(dim_a) / dim_a
+        v = cp.ones(dim_b) / dim_b
 
     # print(reg)
 
     # Next 3 lines equivalent to K= np.exp(-M/reg), but faster to compute
-    K = np.empty(M.shape, dtype=M.dtype)
-    np.divide(M, -reg, out=K)
-    np.exp(K, out=K)
+    K = cp.empty(M.shape, dtype=M.dtype)
+    cp.divide(M, -reg, out=K)
+    cp.exp(K, out=K)
 
     # print(np.min(K))
-    tmp2 = np.empty(b.shape, dtype=M.dtype)
+    tmp2 = cp.empty(b.shape, dtype=M.dtype)
 
     Kp = (1 / a).reshape(-1, 1) * K
     cpt = 0
@@ -359,13 +359,13 @@ def sinkhorn_knopp(a, b, M, reg, numItermax=1000,
         uprev = u
         vprev = v
 
-        KtransposeU = np.dot(K.T, u)
-        v = np.divide(b, KtransposeU)
-        u = 1. / np.dot(Kp, v)
+        KtransposeU = cp.dot(K.T, u)
+        v = cp.divide(b, KtransposeU)
+        u = 1. / cp.dot(Kp, v)
 
-        if (np.any(KtransposeU == 0)
-                or np.any(np.isnan(u)) or np.any(np.isnan(v))
-                or np.any(np.isinf(u)) or np.any(np.isinf(v))):
+        if (cp.any(KtransposeU == 0)
+                or cp.any(cp.isnan(u)) or cp.any(cp.isnan(v))
+                or cp.any(cp.isinf(u)) or cp.any(cp.isinf(v))):
             # we have reached the machine precision
             # come back to previous solution and quit loop
             print('Warning: numerical errors at iteration', cpt)
@@ -376,11 +376,11 @@ def sinkhorn_knopp(a, b, M, reg, numItermax=1000,
             # we can speed up the process by checking for the error only all
             # the 10th iterations
             if n_hists:
-                np.einsum('ik,ij,jk->jk', u, K, v, out=tmp2)
+                cp.einsum('ik,ij,jk->jk', u, K, v, out=tmp2)
             else:
                 # compute right marginal tmp2= (diag(u)Kdiag(v))^T1
-                np.einsum('i,ij,j->j', u, K, v, out=tmp2)
-            err = np.linalg.norm(tmp2 - b)  # violation of marginal
+                cp.einsum('i,ij,j->j', u, K, v, out=tmp2)
+            err = cp.linalg.norm(tmp2 - b)  # violation of marginal
             if log:
                 log['err'].append(err)
 
@@ -395,7 +395,7 @@ def sinkhorn_knopp(a, b, M, reg, numItermax=1000,
         log['v'] = v
 
     if n_hists:  # return only loss
-        res = np.einsum('ik,ij,jk,ij->k', u, K, v, M)
+        res = cp.einsum('ik,ij,jk,ij->k', u, K, v, M)
         if log:
             return res, log
         else:
